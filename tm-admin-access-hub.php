@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TM Admin Access Hub
  * Description: Role-based admin menu control with tabs + capability bridges (Woo Analytics, Site Kit, Fluent). Safe-by-default (hide only).
- * Version: 2.0.3
+ * Version: 2.0.4
  * Author: Terzi Mankeni
  */
 
@@ -116,28 +116,7 @@ class TM_Admin_Access_Hub_V2 {
         return false;
     }
 
-    private static function is_cross_parent_allowed($item_slug, $allowed_flat) {
-        $item_slug = self::norm($item_slug);
-        if ($item_slug === '') return false;
-
-        // Only apply cross-parent fallback for wc-admin "home" item (no &path=...).
-        // If it's a specific wc-admin path (extensions/customers/analytics...), it must be explicitly allowed.
-        $is_wc_admin_home =
-            ($item_slug === 'wc-admin') ||
-            (strpos($item_slug, 'admin.php?page=wc-admin') === 0 && strpos($item_slug, '&') === false);
-
-        if ($is_wc_admin_home) {
-            // Show wc-admin home if ANY wc-admin-related item is allowed somewhere.
-            foreach ((array)$allowed_flat as $it) {
-                $it = self::norm($it);
-                if ($it === '') continue;
-                if (self::base_slug($it) === 'wc-admin') return true;
-                if (strpos($it, 'wc-admin') === 0) return true;
-            }
-        }
-
-        return false;
-    }
+    // (removed) cross-parent fallback: explicit allow only
 
     private static function flatten_allow($role_rules) {
         $out = array();
@@ -623,10 +602,7 @@ class TM_Admin_Access_Hub_V2 {
                         $sub_slug = self::norm($sub[2]);
 
                         if (!self::is_allowed_slug($sub_slug, $allowed_subs)) {
-                            // Cross-parent fallback: only wc-admin HOME
-                            if (!self::is_cross_parent_allowed($sub_slug, self::flatten_allow($role_rules))) {
-                                remove_submenu_page($parent_slug_norm, $sub_slug);
-                            }
+                            remove_submenu_page($parent_slug_norm, $sub_slug);
                         }
                     }
                 }
