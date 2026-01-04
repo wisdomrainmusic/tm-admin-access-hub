@@ -631,25 +631,38 @@ class TM_Admin_Access_Hub_V2 {
         $allowed = self::flatten_allow($role_rules);
         $hay = strtolower(implode(' | ', $allowed));
 
-        // If you allowed Woo Analytics / wc-admin, grant analytics caps
+        // Woo bridge (split: core Woo vs wc-admin)
         if (!empty($bridge['woocommerce'])) {
-            if (strpos($hay, 'wc-admin') !== false || strpos($hay, 'woocommerce') !== false) {
+            $has_wc_admin = (strpos($hay, 'wc-admin') !== false); // explicit wc-admin allow
+            $has_woo_core = (
+                strpos($hay, 'woocommerce') !== false ||
+                strpos($hay, 'wc-orders') !== false ||
+                strpos($hay, 'edit.php?post_type=product') !== false ||
+                strpos($hay, 'shop_order') !== false
+            );
+
+            // 1) Core Woo access (orders/products/settings pages depend on this)
+            if ($has_woo_core) {
                 $allcaps['manage_woocommerce'] = true;
                 $allcaps['view_woocommerce_reports'] = true;
-                $allcaps['view_woocommerce_analytics'] = true;
-
-                // Woo Admin / Analytics variations (different WC versions/plugins may check these)
-                $allcaps['view_woocommerce_admin_dashboard'] = true;
-                $allcaps['view_woocommerce_admin_analytics'] = true;
-                $allcaps['view_woocommerce_admin_reports'] = true;
-                $allcaps['view_woocommerce_admin_pages'] = true;
-                $allcaps['view_woocommerce_admin_tools'] = true;
 
                 // Common shop-manager needs
                 $allcaps['edit_products'] = true;
                 $allcaps['read_product'] = true;
                 $allcaps['edit_shop_orders'] = true;
                 $allcaps['read_shop_order'] = true;
+            }
+
+            // 2) wc-admin / analytics access (ONLY if explicitly allowed)
+            if ($has_wc_admin) {
+                $allcaps['view_woocommerce_analytics'] = true;
+
+                // Woo Admin / Analytics variations
+                $allcaps['view_woocommerce_admin_dashboard'] = true;
+                $allcaps['view_woocommerce_admin_analytics'] = true;
+                $allcaps['view_woocommerce_admin_reports'] = true;
+                $allcaps['view_woocommerce_admin_pages'] = true;
+                $allcaps['view_woocommerce_admin_tools'] = true;
             }
         }
 
