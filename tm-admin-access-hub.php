@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TM Admin Access Hub
  * Description: Role-based admin menu control with tabs + capability bridges (Woo Analytics, Site Kit, Fluent). Safe-by-default (hide only).
- * Version: 2.0.0
+ * Version: 2.0.1
  * Author: Terzi Mankeni
  */
 
@@ -69,6 +69,52 @@ class TM_Admin_Access_Hub_V2 {
         return trim($slug);
     }
 
+    /**
+     * Extract a comparable "base" from a menu slug.
+     * Examples:
+     *  - admin.php?page=wc-admin&path=/analytics/overview  => wc-admin
+     *  - wc-admin&path=/analytics/overview                 => wc-admin
+     *  - edit.php?post_type=product                        => edit.php
+     */
+    private static function base_slug($slug) {
+        $slug = self::norm($slug);
+        if ($slug === '') return '';
+
+        if (strpos($slug, 'admin.php?page=') === 0) {
+            $slug = substr($slug, strlen('admin.php?page='));
+        }
+
+        $cut = strcspn($slug, "&?");
+        $base = substr($slug, 0, $cut);
+        return self::norm($base);
+    }
+
+    /**
+     * Loose allowlist check:
+     * - exact match
+     * - base slug match (wc-admin equals wc-admin&path=...)
+     * - allowlist item is prefix of slug (for query args)
+     */
+    private static function is_allowed_slug($slug, $allowlist) {
+        $slug = self::norm($slug);
+        if ($slug === '') return false;
+
+        $base = self::base_slug($slug);
+
+        foreach ((array)$allowlist as $it) {
+            $it = self::norm($it);
+            if ($it === '') continue;
+
+            if ($it === $slug) return true;
+            if ($base !== '' && $it === $base) return true;
+            if (strpos($slug, $it) === 0) return true;
+
+            $it_base = self::base_slug($it);
+            if ($it_base !== '' && $it_base === $base) return true;
+        }
+        return false;
+    }
+
     private static function flatten_allow($role_rules) {
         $out = array();
 
@@ -84,6 +130,28 @@ class TM_Admin_Access_Hub_V2 {
         $out = array_map(array(__CLASS__, 'norm'), $out);
         $out = array_values(array_unique(array_filter($out)));
         return $out;
+    }
+
+    /**
+     * When settings are imported manually, it's possible to have submenu allowlists
+     * without the parent in allow_top. To prevent "I checked it but it doesn't show"
+     * cases, we auto-include any parent that has at least one allowed submenu.
+     */
+    private static function ensure_parents_allowed(&$allow_top, $allow_sub) {
+        if (!is_array($allow_top)) $allow_top = array();
+        if (!is_array($allow_sub)) $allow_sub = array();
+
+        foreach ($allow_sub as $parent => $subs) {
+            $parent = self::norm($parent);
+            if ($parent === '') continue;
+            if (!is_array($subs) || empty($subs)) continue;
+
+            if (!in_array($parent, $allow_top, true)) {
+                $allow_top[] = $parent;
+            }
+        }
+
+        $allow_top = array_values(array_unique(array_filter(array_map(array(__CLASS__, 'norm'), $allow_top))));
     }
 
     /* =========================
@@ -496,6 +564,9 @@ class TM_Admin_Access_Hub_V2 {
         $allow_top = isset($role_rules['allow_top']) && is_array($role_rules['allow_top']) ? $role_rules['allow_top'] : array();
         $allow_sub = isset($role_rules['allow_sub']) && is_array($role_rules['allow_sub']) ? $role_rules['allow_sub'] : array();
 
+        // Normalize: if a parent has allowed submenus, ensure parent is also treated as allowed.
+        self::ensure_parents_allowed($allow_top, $allow_sub);
+
         // Always keep Dashboard
         if (!in_array('index.php', $allow_top, true)) $allow_top[] = 'index.php';
 
@@ -508,7 +579,7 @@ class TM_Admin_Access_Hub_V2 {
                 $slug = self::norm($item[2]);
                 if ($slug === '' || strpos($slug, 'separator') === 0) continue;
 
-                if (!in_array($slug, $allow_top, true)) {
+                if (!self::is_allowed_slug($slug, $allow_top)) {
                     remove_menu_page($slug);
                 }
             }
@@ -518,7 +589,7 @@ class TM_Admin_Access_Hub_V2 {
         if (is_array($submenu)) {
             foreach ($submenu as $parent_slug => $subs) {
                 $parent_slug_norm = self::norm($parent_slug);
-                if (!in_array($parent_slug_norm, $allow_top, true)) continue;
+                if (!self::is_allowed_slug($parent_slug_norm, $allow_top)) continue;
 
                 $allowed_subs = isset($allow_sub[$parent_slug_norm]) && is_array($allow_sub[$parent_slug_norm]) ? $allow_sub[$parent_slug_norm] : array();
 
@@ -527,7 +598,7 @@ class TM_Admin_Access_Hub_V2 {
                         if (!is_array($sub) || !isset($sub[2])) continue;
                         $sub_slug = self::norm($sub[2]);
 
-                        if (!in_array($sub_slug, $allowed_subs, true)) {
+                        if (!self::is_allowed_slug($sub_slug, $allowed_subs)) {
                             remove_submenu_page($parent_slug_norm, $sub_slug);
                         }
                     }
@@ -563,8 +634,19 @@ class TM_Admin_Access_Hub_V2 {
                 $allcaps['manage_woocommerce'] = true;
                 $allcaps['view_woocommerce_reports'] = true;
                 $allcaps['view_woocommerce_analytics'] = true;
+
+                // Woo Admin / Analytics variations (different WC versions/plugins may check these)
+                $allcaps['view_woocommerce_admin_dashboard'] = true;
+                $allcaps['view_woocommerce_admin_analytics'] = true;
+                $allcaps['view_woocommerce_admin_reports'] = true;
+                $allcaps['view_woocommerce_admin_pages'] = true;
+                $allcaps['view_woocommerce_admin_tools'] = true;
+
+                // Common shop-manager needs
                 $allcaps['edit_products'] = true;
+                $allcaps['read_product'] = true;
                 $allcaps['edit_shop_orders'] = true;
+                $allcaps['read_shop_order'] = true;
             }
         }
 
