@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TM Admin Access Hub
  * Description: Role-based admin menu control with tabs + capability bridges (Woo Analytics, Site Kit, Fluent). Safe-by-default (hide only).
- * Version: 2.0.1
+ * Version: 2.0.2
  * Author: Terzi Mankeni
  */
 
@@ -112,7 +112,41 @@ class TM_Admin_Access_Hub_V2 {
             $it_base = self::base_slug($it);
             if ($it_base !== '' && $it_base === $base) return true;
         }
+
         return false;
+    }
+
+    /**
+     * Some plugins (notably WooCommerce Admin / Analytics) register their submenu trees
+     * under dynamic parent slugs (e.g. "wc-admin&path=/analytics/overview") while the
+     * WooCommerce menu also contains a "wc-admin" entry under parent "woocommerce".
+     *
+     * If a role has ANY allowed item whose base slug is wc-admin/sitekit/fluent, we
+     * should allow the corresponding base entry even if it appears under a different parent.
+     */
+    private static function cross_parent_bases(): array {
+        return array(
+            'wc-admin',
+            'googlesitekit-dashboard',
+            'fluent_forms',
+        );
+    }
+
+    private static function global_allowed_bases(array $role_rules): array {
+        $flat = self::flatten_allow($role_rules);
+        $bases = array();
+        foreach ($flat as $s) {
+            $b = self::base_slug($s);
+            if ($b !== '') $bases[$b] = true;
+        }
+        return array_keys($bases);
+    }
+
+    private static function is_cross_parent_allowed(string $sub_slug, array $global_bases): bool {
+        $base = self::base_slug($sub_slug);
+        if ($base === '') return false;
+        if (!in_array($base, self::cross_parent_bases(), true)) return false;
+        return in_array($base, $global_bases, true);
     }
 
     private static function flatten_allow($role_rules) {
@@ -567,6 +601,10 @@ class TM_Admin_Access_Hub_V2 {
         // Normalize: if a parent has allowed submenus, ensure parent is also treated as allowed.
         self::ensure_parents_allowed($allow_top, $allow_sub);
 
+        $global_bases = self::global_allowed_bases($role_rules);
+
+
+
         // Always keep Dashboard
         if (!in_array('index.php', $allow_top, true)) $allow_top[] = 'index.php';
 
@@ -599,6 +637,10 @@ class TM_Admin_Access_Hub_V2 {
                         $sub_slug = self::norm($sub[2]);
 
                         if (!self::is_allowed_slug($sub_slug, $allowed_subs)) {
+                            // Cross-parent fallback for dynamic parent trees (wc-admin/sitekit/fluent).
+                            if (self::is_cross_parent_allowed($sub_slug, $global_bases)) {
+                                continue;
+                            }
                             remove_submenu_page($parent_slug_norm, $sub_slug);
                         }
                     }
